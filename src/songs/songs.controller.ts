@@ -8,16 +8,17 @@ import {
   Req,
   Post,
   Body,
+  Headers as NestHeaders,
 } from '@nestjs/common';
 import { SongsService } from './songs.service';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import type { Response, Request } from 'express';
 import { ApiBearerAuth } from '@nestjs/swagger';
 import axios from 'axios';
+import { SocksProxyAgent } from 'socks-proxy-agent'; // 🚀 Importación del agente SOCKS5 para Cloudflare WARP
 
 @ApiBearerAuth('bearer')
 @Controller('songs')
-// Quitamos el Guard global para permitir que la ruta /stream/:id sea accesible por la etiqueta <audio>
 export class SongsController {
   constructor(private readonly songsService: SongsService) {}
 
@@ -52,13 +53,19 @@ export class SongsController {
         axiosHeaders['Range'] = clientRange;
       }
 
-      // Despachamos la petición a los servidores de Google pasando el rango dinámico
+      // 🌐 Creamos el agente SOCKS5 apuntando al puerto exacto amarrado a Cloudflare WARP
+      const proxyAgent = new SocksProxyAgent('socks5://127.0.0.1:40000');
+
+      // Despachamos la petición a los servidores de Google pasando el rango dinámico y el agente
       const response = await axios({
         method: 'get',
         url: directStreamUrl,
         responseType: 'stream',
         headers: axiosHeaders,
         timeout: 15000,
+        // 🔒 Inyección quirúrgica: Fuerza a Axios a pedir los bytes con la misma IP que usó el microservicio
+        httpAgent: proxyAgent,
+        httpsAgent: proxyAgent,
       });
 
       const contentType = response.headers['content-type'];

@@ -14,7 +14,7 @@ import axios from 'axios';
 export class SongsService {
   private searchCache = new Map<string, { songs: any[]; expiresAt: number }>();
   private readonly CACHE_TTL = 2 * 60 * 60 * 1000;
-  private readonly MEDIA_SERVICE_URL = 'http://127.0.0.1:5000'; // Apunta al puerto interno del nuevo microservicio
+  private readonly MEDIA_SERVICE_URL = 'http://127.0.0.1:5000';
 
   constructor(
     @InjectRepository(Song)
@@ -29,7 +29,6 @@ export class SongsService {
 
     const lowerQuery = query.trim().toLowerCase();
 
-    // CACHÉ HIT - RAM INSTANTÁNEO
     const cachedData = this.searchCache.get(lowerQuery);
     if (cachedData && cachedData.expiresAt > Date.now()) {
       console.log(
@@ -53,7 +52,6 @@ export class SongsService {
     );
 
     try {
-      // Llamada HTTP directa al microservicio local tunelizado por Cloudflare WARP
       const response = await axios.get(
         `${this.MEDIA_SERVICE_URL}/search?query=${encodeURIComponent(smartQuery)}`,
       );
