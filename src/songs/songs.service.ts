@@ -8,15 +8,13 @@ import { Repository } from 'typeorm';
 import { Song } from './entities/song.entity';
 import { PlaybackHistory } from './entities/playback-history.entity';
 import { ConfigService } from '@nestjs/config';
-import { Innertube } from 'youtubei.js';
-import { SocksProxyAgent } from 'socks-proxy-agent';
+import axios from 'axios';
 
 @Injectable()
 export class SongsService {
-  private youtube: any;
-  private isInitialized = false;
   private searchCache = new Map<string, { songs: any[]; expiresAt: number }>();
   private readonly CACHE_TTL = 2 * 60 * 60 * 1000;
+  private readonly MEDIA_SERVICE_URL = 'http://127.0.0.1:5000'; // Apunta al puerto interno del nuevo microservicio
 
   constructor(
     @InjectRepository(Song)
@@ -24,45 +22,10 @@ export class SongsService {
     @InjectRepository(PlaybackHistory)
     private readonly historyRepository: Repository<PlaybackHistory>,
     private readonly configService: ConfigService,
-  ) {
-    this.initYouTube();
-  }
-
-  private async initYouTube() {
-    try {
-      // Creamos el agente de red apuntando al puerto exacto auditado en el servidor
-      const proxyAgent = new SocksProxyAgent('socks://127.0.0.1:40000');
-
-      this.youtube = await Innertube.create({
-        client_type: 'WEB' as any,
-        fetch: (url, init) => {
-          return fetch(url, {
-            ...init,
-            // @ts-ignore - Inyectamos el agente SOCKS5 de Cloudflare de forma segura para Node.js
-            agent: proxyAgent,
-          });
-        },
-      });
-      this.isInitialized = true;
-      console.log(
-        '\n🚀 [🔒 Motor Multimedia de Kamux Blindado y Enrutado por Cloudflare WARP en Puerto 40000]',
-      );
-    } catch (error) {
-      console.error(
-        '[🚨 Error] Al levantar el motor nativo de YouTube con Cloudflare WARP:',
-        error,
-      );
-    }
-  }
-  private async ensureInitialized() {
-    if (!this.isInitialized || !this.youtube) {
-      await this.initYouTube();
-    }
-  }
+  ) {}
 
   async searchOnYouTube(query: string): Promise<any[]> {
     if (!query || !query.trim()) return [];
-    await this.ensureInitialized();
 
     const lowerQuery = query.trim().toLowerCase();
 
@@ -70,7 +33,7 @@ export class SongsService {
     const cachedData = this.searchCache.get(lowerQuery);
     if (cachedData && cachedData.expiresAt > Date.now()) {
       console.log(
-        `\n[⚡ CACHÉ HIT - INSTANTÁNEO] Resultados recuperados de la RAM para: "${query}" (0.00s)`,
+        `[⚡ RAM CACHÉ HIT] Resultados recuperados al instante para: "${query}"`,
       );
       return cachedData.songs;
     }
@@ -86,74 +49,19 @@ export class SongsService {
 
     const startTime = performance.now();
     console.log(
-      `\n[⏱️ Telemetría Kamux] Iniciando búsqueda binaria nativa para: "${smartQuery}"`,
+      `[⏱️ Telemetría Kamux] Solicitando búsqueda al Microservicio Multimedia para: "${smartQuery}"`,
     );
 
     try {
-      // Usamos la búsqueda general de la plataforma que se adapta mejor al cliente WEB
-      const searchResults = await this.youtube.search(smartQuery, {
-        type: 'video',
-      });
-
-      if (!searchResults.videos || searchResults.videos.length === 0) {
-        console.log(
-          `[⚠️ Telemetría] No se encontraron resultados de video planos. Buscando en catálogo alternativo...`,
-        );
-        return [];
-      }
-
-      const blacklist = [
-        'cover',
-        'lyrics',
-        'letra',
-        'karaoke',
-        'tutorial',
-        'parodia',
-        'reaccion',
-        'raw',
-      ];
-
-      // Filtrado con logs interactivos
-      const filteredItems = searchResults.videos.filter((item: any) => {
-        const title = (item.title?.text || '').toLowerCase();
-        return !blacklist.some(
-          (word) => title.includes(word) && !lowerQuery.includes(word),
-        );
-      });
-
-      const unescapeHtml = (str: string): string => {
-        if (!str) return '';
-        return str
-          .replace(/&#39;/g, "'")
-          .replace(/&quot;/g, '"')
-          .replace(/&amp;/g, '&')
-          .replace(/&lt;/g, '<')
-          .replace(/&gt;/g, '>')
-          .replace(/&ndash;/g, '-')
-          .replace(/&mdash;/g, '-');
-      };
-
-      const finalSongs = filteredItems.slice(0, 10).map((item: any) => {
-        let selectedThumbnail = '';
-        if (item.thumbnails && item.thumbnails.length > 0) {
-          selectedThumbnail = item.thumbnails[item.thumbnails.length - 1].url;
-        }
-
-        return {
-          youtube_id: item.id,
-          title: unescapeHtml(item.title?.text || 'Título Desconocido'),
-          artist: unescapeHtml(item.author?.name || 'Artista Desconocido')
-            .replace(/\s*-\s*Topic$/i, '')
-            .trim(),
-          duration_seconds: item.duration?.seconds || 180,
-          thumbnail: selectedThumbnail,
-        };
-      });
+      // Llamada HTTP directa al microservicio local tunelizado por Cloudflare WARP
+      const response = await axios.get(
+        `${this.MEDIA_SERVICE_URL}/search?query=${encodeURIComponent(smartQuery)}`,
+      );
+      const finalSongs = response.data;
 
       const endTime = performance.now();
-      const totalDurationSeconds = ((endTime - startTime) / 1000).toFixed(2);
       console.log(
-        `[⏱️ Telemetría Kamux] Búsqueda finalizada con éxito en ${totalDurationSeconds}s. Encontrados: ${finalSongs.length} tracks.`,
+        `[⏱️ Telemetría Kamux] Catálogo devuelto por el Microservicio en ${((endTime - startTime) / 1000).toFixed(2)}s`,
       );
 
       this.searchCache.set(lowerQuery, {
@@ -163,7 +71,10 @@ export class SongsService {
 
       return finalSongs;
     } catch (error) {
-      console.error('[🚨 Error en Motor de Búsqueda Permanente]:', error);
+      console.error(
+        '[🚨 Error en Pasarela Compartida de Búsqueda]:',
+        error.message,
+      );
       throw new InternalServerErrorException(
         'Error al buscar en el servicio binario de música.',
       );
@@ -171,10 +82,6 @@ export class SongsService {
   }
 
   async getAudioStreamUrl(youtubeId: string): Promise<string> {
-    await this.ensureInitialized();
-    console.log(
-      `\n=================== 🔊 INICIANDO PIPELINE DE EXTRACCIÓN: ${youtubeId} ===================`,
-    );
     try {
       const song = await this.songRepository.findOne({
         where: { youtube_id: youtubeId },
@@ -193,60 +100,31 @@ export class SongsService {
       }
 
       console.log(
-        `[🕵️ Telemetría Stream] Consultando metadatos base a Google para el ID: ${youtubeId}...`,
-      );
-      const videoInfo = await this.youtube.getInfo(youtubeId);
-      console.log(
-        `[✅ Telemetría Stream] Metadatos recuperados. Título del track: "${videoInfo.basic_info.title}"`,
+        `[🌐 Kamux Red] Solicitando URL de streaming directo al Microservicio Multimedia...`,
       );
 
-      console.log(
-        `[🎯 Telemetría Stream] Seleccionando el mejor formato de audio disponible...`,
+      // Llamada al endpoint extractor de nuestro microservicio dedicado
+      const response = await axios.get(
+        `${this.MEDIA_SERVICE_URL}/stream-url/${youtubeId}`,
       );
-      const format = videoInfo.chooseFormat({ type: 'audio', quality: 'best' });
-
-      if (!format) {
-        console.error(
-          `[🚨 Telemetría Stream Error] Google no entregó ningún stream de audio válido para este track.`,
-        );
-        throw new Error('No se encontró un formato multimedia compatible.');
-      }
-
-      console.log(
-        `[🔑 Telemetría Stream] Formato seleccionado: MIME="${format.mime_type}" | Bitrate=${format.bitrate}`,
-      );
-      console.log(
-        `[🔓 Telemetría Stream] Procediendo a descifrar la firma electrónica del reproductor...`,
-      );
-
-      const freshUrl = format.decipher(this.youtube.session.player);
+      const freshUrl = response.data.url;
 
       if (!freshUrl) {
-        console.error(
-          `[🚨 Telemetría Stream Error] El descifrado de la firma electrónica devolvió un puntero vacío.`,
-        );
         throw new Error(
-          'La URL descifrada desde los servidores de Google está vacía.',
+          'El microservicio multimedia devolvió un objeto de audio vacío.',
         );
       }
-
-      console.log(
-        `[🎉 PIPELINE COMPLETADO] URL directa generada con éxito. Longitud del string: ${freshUrl.length}`,
-      );
 
       if (song) {
         song.cached_stream_url = freshUrl;
         song.cached_at = new Date();
         await this.songRepository.save(song);
-        console.log(`[💾 PostgreSQL] URL persistida en base de datos.`);
+        console.log(`[💾 PostgreSQL] Nueva URL persistida en base de datos.`);
       }
 
       return freshUrl;
     } catch (error) {
-      console.error(
-        '[🚨 Error Crítico en Pasarela de Audio]:',
-        error.stack || error.message,
-      );
+      console.error('[🚨 Error en Acoplamiento de Audio]:', error.message);
       throw new InternalServerErrorException(
         'Error en la pasarela de optimización de audio.',
       );
