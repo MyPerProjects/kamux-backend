@@ -30,11 +30,11 @@ export class SongsService {
   private async initYouTube() {
     try {
       this.youtube = await Innertube.create({
-        client_type: 'WEB' as any, // Cambiamos a WEB para evitar el Error 400 en servidores en la nube
+        client_type: 'TV_EMBEDDED' as any, // 🚀 Bypass definitivo: Simula un Smart TV para forzar la entrega de streams binarios
       });
       this.isInitialized = true;
       console.log(
-        '\n🚀 [🔒 Motor Multimedia de Kamux Activo en Modo WEB Estable]',
+        '\n🚀 [🔒 Motor Multimedia de Kamux Activo en Modo SmartTV Permanente]',
       );
     } catch (error) {
       console.error(
