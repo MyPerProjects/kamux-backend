@@ -9,6 +9,7 @@ import { Song } from './entities/song.entity';
 import { PlaybackHistory } from './entities/playback-history.entity';
 import { ConfigService } from '@nestjs/config';
 import { Innertube } from 'youtubei.js';
+import { SocksProxyAgent } from 'socks-proxy-agent';
 
 @Injectable()
 export class SongsService {
