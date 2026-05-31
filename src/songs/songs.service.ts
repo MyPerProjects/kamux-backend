@@ -29,21 +29,30 @@ export class SongsService {
 
   private async initYouTube() {
     try {
+      // Creamos el agente de red apuntando al puerto exacto auditado en el servidor
+      const proxyAgent = new SocksProxyAgent('socks://127.0.0.1:40000');
+
       this.youtube = await Innertube.create({
-        client_type: 'TV_EMBEDDED' as any, // 🚀 Bypass definitivo: Simula un Smart TV para forzar la entrega de streams binarios
+        client_type: 'WEB' as any,
+        fetch: (url, init) => {
+          return fetch(url, {
+            ...init,
+            // @ts-ignore - Inyectamos el agente SOCKS5 de Cloudflare de forma segura para Node.js
+            agent: proxyAgent,
+          });
+        },
       });
       this.isInitialized = true;
       console.log(
-        '\n🚀 [🔒 Motor Multimedia de Kamux Activo en Modo SmartTV Permanente]',
+        '\n🚀 [🔒 Motor Multimedia de Kamux Blindado y Enrutado por Cloudflare WARP en Puerto 40000]',
       );
     } catch (error) {
       console.error(
-        '[🚨 Error] Al levantar el motor nativo de YouTube:',
+        '[🚨 Error] Al levantar el motor nativo de YouTube con Cloudflare WARP:',
         error,
       );
     }
   }
-
   private async ensureInitialized() {
     if (!this.isInitialized || !this.youtube) {
       await this.initYouTube();
