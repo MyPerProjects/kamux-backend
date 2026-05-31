@@ -103,7 +103,6 @@ export class SongsService {
         `[🌐 Kamux Red] Solicitando URL de streaming directo al Microservicio Multimedia...`,
       );
 
-      // Llamada al endpoint extractor de nuestro microservicio dedicado
       const response = await axios.get(
         `${this.MEDIA_SERVICE_URL}/stream-url/${youtubeId}`,
       );
