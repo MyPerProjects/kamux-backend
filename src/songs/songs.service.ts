@@ -27,17 +27,14 @@ export class SongsService {
     this.initYouTube();
   }
 
-  /**
-   * 🔒 Inicializa el motor InnerTube emulando un cliente nativo
-   */
   private async initYouTube() {
     try {
       this.youtube = await Innertube.create({
-        client_type: 'ANDROID_MUSIC' as any,
+        client_type: 'WEB' as any, // Cambiamos a WEB para evitar el Error 400 en servidores en la nube
       });
       this.isInitialized = true;
       console.log(
-        '\n🚀 [🔒 Motor Multimedia de Kamux Activo Permanente y Estable]',
+        '\n🚀 [🔒 Motor Multimedia de Kamux Activo en Modo WEB Estable]',
       );
     } catch (error) {
       console.error(
@@ -83,12 +80,15 @@ export class SongsService {
     );
 
     try {
-      // Búsqueda directa simulando la app oficial de YouTube Music
-      const searchResults = await this.youtube.music.search(smartQuery, {
-        type: 'song',
+      // Usamos la búsqueda general de la plataforma que se adapta mejor al cliente WEB
+      const searchResults = await this.youtube.search(smartQuery, {
+        type: 'video',
       });
 
-      if (!searchResults.songs || !searchResults.songs.contents) {
+      if (!searchResults.videos || searchResults.videos.length === 0) {
+        console.log(
+          `[⚠️ Telemetría] No se encontraron resultados de video planos. Buscando en catálogo alternativo...`,
+        );
         return [];
       }
 
@@ -103,8 +103,9 @@ export class SongsService {
         'raw',
       ];
 
-      const filteredItems = searchResults.songs.contents.filter((item: any) => {
-        const title = (item.title || '').toLowerCase();
+      // Filtrado con logs interactivos
+      const filteredItems = searchResults.videos.filter((item: any) => {
+        const title = (item.title?.text || '').toLowerCase();
         return !blacklist.some(
           (word) => title.includes(word) && !lowerQuery.includes(word),
         );
@@ -122,33 +123,19 @@ export class SongsService {
           .replace(/&mdash;/g, '-');
       };
 
-      const cleanArtistName = (artistsArray: any[]): string => {
-        if (!artistsArray || artistsArray.length === 0)
-          return 'Artista Desconocido';
-        return unescapeHtml(artistsArray[0].name)
-          .replace(/\s*-\s*Topic$/i, '')
-          .replace(/\s*-\s*Tema$/i, '')
-          .trim();
-      };
-
-      const finalSongs = filteredItems.map((item: any) => {
+      const finalSongs = filteredItems.slice(0, 10).map((item: any) => {
         let selectedThumbnail = '';
-        if (
-          item.thumbnail &&
-          item.thumbnail.contents &&
-          item.thumbnail.contents.length > 0
-        ) {
-          selectedThumbnail =
-            item.thumbnail.contents[item.thumbnail.contents.length - 1].url;
+        if (item.thumbnails && item.thumbnails.length > 0) {
+          selectedThumbnail = item.thumbnails[item.thumbnails.length - 1].url;
         }
 
         return {
           youtube_id: item.id,
-          title: unescapeHtml(item.title),
-          artist: cleanArtistName(item.artists),
-          duration_seconds: item.duration
-            ? Math.floor(item.duration.seconds)
-            : 180,
+          title: unescapeHtml(item.title?.text || 'Título Desconocido'),
+          artist: unescapeHtml(item.author?.name || 'Artista Desconocido')
+            .replace(/\s*-\s*Topic$/i, '')
+            .trim(),
+          duration_seconds: item.duration?.seconds || 180,
           thumbnail: selectedThumbnail,
         };
       });
@@ -156,7 +143,7 @@ export class SongsService {
       const endTime = performance.now();
       const totalDurationSeconds = ((endTime - startTime) / 1000).toFixed(2);
       console.log(
-        `[⏱️ Telemetría Kamux] Búsqueda finalizada con éxito en ${totalDurationSeconds}s`,
+        `[⏱️ Telemetría Kamux] Búsqueda finalizada con éxito en ${totalDurationSeconds}s. Encontrados: ${finalSongs.length} tracks.`,
       );
 
       this.searchCache.set(lowerQuery, {
@@ -175,6 +162,9 @@ export class SongsService {
 
   async getAudioStreamUrl(youtubeId: string): Promise<string> {
     await this.ensureInitialized();
+    console.log(
+      `\n=================== 🔊 INICIANDO PIPELINE DE EXTRACCIÓN: ${youtubeId} ===================`,
+    );
     try {
       const song = await this.songRepository.findOne({
         where: { youtube_id: youtubeId },
@@ -186,44 +176,67 @@ export class SongsService {
           (1000 * 60 * 60);
         if (hoursAge < 5) {
           console.log(
-            `[⚡ CACHÉ HIT] URL recuperada de PostgreSQL para el ID: ${youtubeId}`,
+            `[⚡ CACHÉ HIT PostgreSQL] URL válida reutilizada para el ID: ${youtubeId}`,
           );
           return song.cached_stream_url;
         }
       }
 
       console.log(
-        `[⏱️ Telemetría Kamux] Extrayendo streaming binario seguro para: ${youtubeId}`,
+        `[🕵️ Telemetría Stream] Consultando metadatos base a Google para el ID: ${youtubeId}...`,
+      );
+      const videoInfo = await this.youtube.getInfo(youtubeId);
+      console.log(
+        `[✅ Telemetría Stream] Metadatos recuperados. Título del track: "${videoInfo.basic_info.title}"`,
       );
 
-      // Obtenemos los metadatos y flujos de cifrado del video
-      const videoInfo = await this.youtube.getInfo(youtubeId);
-
-      // Escogemos de forma inteligente el flujo de audio óptimo (calidad adaptativa nativa)
+      console.log(
+        `[🎯 Telemetría Stream] Seleccionando el mejor formato de audio disponible...`,
+      );
       const format = videoInfo.chooseFormat({ type: 'audio', quality: 'best' });
 
       if (!format) {
+        console.error(
+          `[🚨 Telemetría Stream Error] Google no entregó ningún stream de audio válido para este track.`,
+        );
         throw new Error('No se encontró un formato multimedia compatible.');
       }
 
-      // Desciframos la firma electrónica usando el reproductor nativo de la sesión
+      console.log(
+        `[🔑 Telemetría Stream] Formato seleccionado: MIME="${format.mime_type}" | Bitrate=${format.bitrate}`,
+      );
+      console.log(
+        `[🔓 Telemetría Stream] Procediendo a descifrar la firma electrónica del reproductor...`,
+      );
+
       const freshUrl = format.decipher(this.youtube.session.player);
 
       if (!freshUrl) {
+        console.error(
+          `[🚨 Telemetría Stream Error] El descifrado de la firma electrónica devolvió un puntero vacío.`,
+        );
         throw new Error(
           'La URL descifrada desde los servidores de Google está vacía.',
         );
       }
 
+      console.log(
+        `[🎉 PIPELINE COMPLETADO] URL directa generada con éxito. Longitud del string: ${freshUrl.length}`,
+      );
+
       if (song) {
         song.cached_stream_url = freshUrl;
         song.cached_at = new Date();
         await this.songRepository.save(song);
+        console.log(`[💾 PostgreSQL] URL persistida en base de datos.`);
       }
 
       return freshUrl;
     } catch (error) {
-      console.error('[🚨 Error en Pasarela Permanente]:', error.message);
+      console.error(
+        '[🚨 Error Crítico en Pasarela de Audio]:',
+        error.stack || error.message,
+      );
       throw new InternalServerErrorException(
         'Error en la pasarela de optimización de audio.',
       );
