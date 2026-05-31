@@ -11,33 +11,103 @@ import {
 } from '@nestjs/common';
 import { SongsService } from './songs.service';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
-import type { Response } from 'express';
+import type { Response, Request } from 'express';
 import { ApiBearerAuth } from '@nestjs/swagger';
+import axios from 'axios';
 
 @ApiBearerAuth('bearer')
 @Controller('songs')
-@UseGuards(JwtAuthGuard) // Protege todas las rutas de este controlador con JWT
+// Quitamos el Guard global para permitir que la ruta /stream/:id sea accesible por la etiqueta <audio>
 export class SongsController {
   constructor(private readonly songsService: SongsService) {}
 
   @Get('search')
+  @UseGuards(JwtAuthGuard) // 🛡️ Protegido
   async search(@Query('query') query: string) {
     return this.songsService.searchOnYouTube(query || '');
   }
 
+  /**
+   * 🚀 TUNEL PROXY PREMIUM MULTIMEDIA: Soporta peticiones de rango binario (HTTP 206)
+   * Permite que la barra de progreso en Angular funcione fluida sin reinicios al inicio.
+   * 🌐 ACCESO PÚBLICO: Exento de Guard para evitar bloqueos por falta de cabeceras en peticiones nativas del navegador.
+   */
   @Get('stream/:id')
-  async streamAudio(@Param('id') id: string, @Res() res: Response) {
-    const audioStream = await this.songsService.getAudioStream(id);
+  async streamAudio(
+    @Param('id') id: string,
+    @Req() req: Request,
+    @Res() res: Response,
+  ) {
+    try {
+      const directStreamUrl = await this.songsService.getAudioStreamUrl(id);
 
-    // Configuramos las cabeceras HTTP necesarias para el streaming de audio fluido
-    res.setHeader('Content-Type', 'audio/mpeg');
-    res.setHeader('Transfer-Encoding', 'chunked');
+      // Capturamos el rango que solicita la etiqueta Audio de HTML5
+      const clientRange = req.headers.range;
+      const axiosHeaders: Record<string, string> = {};
 
-    // Conectamos el flujo origen directamente a la respuesta HTTP del cliente
-    audioStream.pipe(res);
+      if (clientRange) {
+        console.log(
+          `[🔊 Kamux Stream] Cliente solicita rango multimedia: ${clientRange}`,
+        );
+        axiosHeaders['Range'] = clientRange;
+      }
+
+      // Despachamos la petición a los servidores de Google pasando el rango dinámico
+      const response = await axios({
+        method: 'get',
+        url: directStreamUrl,
+        responseType: 'stream',
+        headers: axiosHeaders,
+        timeout: 15000,
+      });
+
+      const contentType = response.headers['content-type'];
+      const safeContentType =
+        typeof contentType === 'string' ? contentType : 'audio/webm';
+
+      // Sincronizamos las cabeceras multimedia de vuelta al cliente de Angular
+      res.setHeader('Content-Type', safeContentType);
+      res.setHeader('Accept-Ranges', 'bytes');
+
+      // 🛡️ SOLUCIÓN ANTIBUG TS2345: Forzamos la conversión a String plano para que compile limpio en NestJS
+      if (response.headers['content-range']) {
+        res.setHeader(
+          'Content-Range',
+          String(response.headers['content-range']),
+        );
+      }
+      if (response.headers['content-length']) {
+        res.setHeader(
+          'Content-Length',
+          String(response.headers['content-length']),
+        );
+      }
+
+      // Si hay rango parcial, le respondemos a Angular con el código de estado 206 oficial
+      const statusCode = clientRange ? 206 : 200;
+      res.status(statusCode);
+
+      // 🛡️ CAPTURA DE ABORTO RÁPIDA: Si el usuario cambia de track, destruye la tubería de red de inmediato
+      res.on('close', () => {
+        if (response.data && typeof response.data.destroy === 'function') {
+          response.data.destroy();
+        }
+      });
+
+      return response.data.pipe(res);
+    } catch (error) {
+      console.error(
+        `[🚨 Stream Proxy Error] Error en pasarela binaria:`,
+        error.message,
+      );
+      if (!res.headersSent) {
+        res.status(500).json({ message: 'Error en la transmisión de audio.' });
+      }
+    }
   }
 
   @Post('history/track')
+  @UseGuards(JwtAuthGuard) // 🛡️ Protegido
   async trackPlayback(
     @Req() req: any,
     @Body()
@@ -46,23 +116,25 @@ export class SongsController {
       title: string;
       artist: string;
       duration_seconds: number;
+      thumbnail: string;
     },
   ) {
     const userId = req.user.id;
 
-    // 1. Guardamos o actualizamos en el catálogo global único
+    console.log('[📦 Backend - Controller] Petición recibida en history/track');
     await this.songsService.saveToCatalog({
       youtube_id: body.youtube_id,
       title: body.title,
       artist: body.artist,
       duration_seconds: body.duration_seconds,
+      thumbnail: body.thumbnail,
     });
 
-    // 2. Registramos la reproducción en el historial del usuario
     return this.songsService.trackPlayback(userId, body.youtube_id);
   }
 
   @Get('history')
+  @UseGuards(JwtAuthGuard) // 🛡️ Protegido
   async getHistory(@Req() req: any) {
     const userId = req.user.id;
     return this.songsService.getRecentHistory(userId);

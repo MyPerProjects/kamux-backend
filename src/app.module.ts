@@ -30,7 +30,7 @@ import { LyricsModule } from './lyrics/lyrics.module';
         password: configService.get<string>('database.password'),
         database: configService.get<string>('database.name'),
         autoLoadEntities: true, // Carga automáticamente las tablas (*.entity.ts)
-        synchronize: false,
+        synchronize: true,
       }),
     }),
 

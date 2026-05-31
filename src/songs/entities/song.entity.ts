@@ -13,4 +13,13 @@ export class Song {
 
   @Column({ type: 'integer', nullable: false })
   duration_seconds?: number;
+
+  @Column({ nullable: true, type: 'text' })
+  cached_stream_url: string;
+
+  @Column({ nullable: true, type: 'timestamp' })
+  cached_at: Date;
+
+  @Column({ type: 'text', nullable: true })
+  thumbnail?: string;
 }

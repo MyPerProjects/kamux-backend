@@ -8,6 +8,13 @@ import { AuthGuard } from '@nestjs/passport';
 @Injectable()
 export class JwtAuthGuard extends AuthGuard('jwt') {
   async canActivate(context: ExecutionContext): Promise<boolean> {
+    const request = context.switchToHttp().getRequest();
+
+    const tokenFromUrl = request.query?.token;
+    if (tokenFromUrl && !request.headers.authorization) {
+      request.headers.authorization = `Bearer ${tokenFromUrl}`;
+    }
+
     const result = (await super.canActivate(context)) as boolean;
     return result;
   }
