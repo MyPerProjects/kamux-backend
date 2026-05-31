@@ -40,6 +40,7 @@
     "swagger-ui-express": "^5.0.1",
     "typeorm": "^1.0.0",
     "youtube-ext": "^1.1.25",
+    "youtubei.js": "^17.0.1",
     "ytdl-core": "^4.11.5"
   },
   "devDependencies": {
