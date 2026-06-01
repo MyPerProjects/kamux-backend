@@ -37,23 +37,15 @@ export class SongsService {
       return cachedData.songs;
     }
 
-    const smartQuery =
-      lowerQuery.includes('official') ||
-      lowerQuery.includes('live') ||
-      lowerQuery.includes('video') ||
-      lowerQuery.includes('topic') ||
-      lowerQuery.includes('tema')
-        ? query
-        : `${query} - Topic`;
-
     const startTime = performance.now();
     console.log(
-      `[⏱️ Telemetría Kamux] Solicitando búsqueda al Microservicio Multimedia para: "${smartQuery}"`,
+      `[⏱️ Telemetría Kamux] Solicitando búsqueda al Microservicio Multimedia para: "${query}"`,
     );
 
     try {
+      // 🚀 Modificado: Pasamos la query limpia directamente a YouTube Music sin concatenar "- Topic"
       const response = await axios.get(
-        `${this.MEDIA_SERVICE_URL}/search?query=${encodeURIComponent(smartQuery)}`,
+        `${this.MEDIA_SERVICE_URL}/search?query=${encodeURIComponent(query.trim())}`,
       );
       const finalSongs = response.data;
 
@@ -75,6 +67,44 @@ export class SongsService {
       );
       throw new InternalServerErrorException(
         'Error al buscar en el servicio binario de música.',
+      );
+    }
+  }
+
+  async getRelatedSongs(youtubeId: string): Promise<any[]> {
+    try {
+      const response = await axios.get(
+        `${this.MEDIA_SERVICE_URL}/related/${youtubeId}`,
+      );
+
+      const relatedSongs = response.data;
+      if (!Array.isArray(relatedSongs)) {
+        return [];
+      }
+
+      for (const song of relatedSongs) {
+        this.saveToCatalog({
+          youtube_id: song.youtube_id,
+          title: song.title,
+          artist: song.artist,
+          duration_seconds: song.duration_seconds || 0,
+          thumbnail: song.thumbnail,
+        }).catch((err) =>
+          console.warn(
+            `[💾 Catálogo Silencioso] No se pudo pre-guardar el track ${song.youtube_id}:`,
+            err.message,
+          ),
+        );
+      }
+
+      return relatedSongs;
+    } catch (error) {
+      console.error(
+        `[🚨 Error Pasarela Recomendaciones] Error al conectar con el puerto 5000:`,
+        error.message,
+      );
+      throw new InternalServerErrorException(
+        'Error en el servicio de recomendaciones multimedia.',
       );
     }
   }

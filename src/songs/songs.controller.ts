@@ -29,6 +29,20 @@ export class SongsController {
   }
 
   /**
+   * 🚀 ENDPOINT DE RECOMENDACIONES ESTILO YOUTUBE MUSIC
+   * Obtiene una lista de hasta 30 canciones directamente relacionadas con el track actual.
+   * Utiliza el ID multimedia como semilla para alimentar el algoritmo de reproducción continua.
+   */
+  @Get('related/:id')
+  @UseGuards(JwtAuthGuard) // 🛡️ Protegido
+  async getRelatedSongs(@Param('id') id: string) {
+    console.log(
+      `[🎶 Kamux Algoritmo] Solicitando tracks recomendados para la semilla: ${id}`,
+    );
+    return this.songsService.getRelatedSongs(id);
+  }
+
+  /**
    * 🚀 TUNEL PROXY PREMIUM MULTIMEDIA: Soporta peticiones de rango binario (HTTP 206)
    * Permite que la barra de progreso en Angular funcione fluida sin reinicios al inicio.
    * 🌐 ACCESO PÚBLICO: Exento de Guard para evitar bloqueos por falta de cabeceras en peticiones nativas del navegador.
