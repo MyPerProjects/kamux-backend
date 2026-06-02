@@ -15,9 +15,8 @@ export class SongsService {
   private searchCache = new Map<string, { songs: any[]; expiresAt: number }>();
   private readonly CACHE_TTL = 2 * 60 * 60 * 1000;
 
-  // 🧭 SEPARACIÓN DE RESPONSABILIDADES
-  private readonly MEDIA_SERVICE_URL = 'http://127.0.0.1:5000'; // Solo para Streaming de Audio
-  private readonly HYBRID_SERVICE_URL = 'http://127.0.0.1:5001'; // Para Búsquedas y Radio Inteligente
+  private readonly MEDIA_SERVICE_URL = 'http://127.0.0.1:5000';
+  private readonly HYBRID_SERVICE_URL = 'http://127.0.0.1:5001';
 
   constructor(
     @InjectRepository(Song)
@@ -29,7 +28,6 @@ export class SongsService {
 
   async searchOnYouTube(query: string): Promise<any[]> {
     if (!query || !query.trim()) return [];
-
     const lowerQuery = query.trim().toLowerCase();
 
     const cachedData = this.searchCache.get(lowerQuery);
@@ -46,13 +44,12 @@ export class SongsService {
     );
 
     try {
-      // 🎯 MODIFICADO: Apunta al puerto 5001 y usa el parámetro "?q=" oficial de Google
       const response = await axios.get(
         `${this.HYBRID_SERVICE_URL}/search?q=${encodeURIComponent(query.trim())}`,
       );
       const finalSongs = response.data;
-
       const endTime = performance.now();
+
       console.log(
         `[⏱️ Telemetría Kamux] Catálogo devuelto por el Pool Oficial en ${((endTime - startTime) / 1000).toFixed(2)}s`,
       );
@@ -79,47 +76,14 @@ export class SongsService {
       console.log(
         `[🧠 Kamux Radio] Buscando metadatos locales para el ID: ${youtubeId}`,
       );
-
-      // 🎯 CRÍTICO: Buscamos la canción actual en la base de datos para darle a Last.fm lo que necesita
       const currentSong = await this.songRepository.findOne({
         where: { youtube_id: youtubeId },
       });
 
-      // Si no tenemos la canción registrada, usamos valores por defecto seguros para no romper la app
       const artist = currentSong?.artist || 'Motley Crue';
       const track = currentSong?.title || 'Kickstart My Heart';
 
-      console.log(
-        `[📻 Kamux Radio] Solicitando Mix Híbrido para: ${artist} - ${track}`,
-      );
-
-      // 🎯 MODIFICADO: Llama al puerto 5001 enviando los metadatos limpios en formato "?artist=&track="
-      const response = await axios.get(
-        `${this.HYBRID_SERVICE_URL}/related?artist=${encodeURIComponent(artist)}&track=${encodeURIComponent(track)}`,
-      );
-
-      const relatedSongs = response.data;
-      if (!Array.isArray(relatedSongs)) {
-        return [];
-      }
-
-      // Pre-guardado silencioso en el catálogo para optimizar futuras reproducciones
-      for (const song of relatedSongs) {
-        this.saveToCatalog({
-          youtube_id: song.youtube_id,
-          title: song.title,
-          artist: song.artist,
-          duration_seconds: song.duration_seconds || 0,
-          thumbnail: song.thumbnail,
-        }).catch((err) =>
-          console.warn(
-            `[💾 Catálogo Silencioso] No se pudo pre-guardar el track ${song.youtube_id}:`,
-            err.message,
-          ),
-        );
-      }
-
-      return relatedSongs;
+      return this.getRelatedSongsExtended(artist, track);
     } catch (error) {
       console.error(
         `[🚨 Error Pasarela Recomendaciones Híbridas]:`,
@@ -128,6 +92,82 @@ export class SongsService {
       throw new InternalServerErrorException(
         'Error en el servicio de recomendaciones de Inteligencia Musical.',
       );
+    }
+  }
+
+  async getRelatedSongsExtended(artist: string, track: string): Promise<any[]> {
+    try {
+      console.log(
+        `[📻 Kamux Radio] Solicitando Mix Híbrido Extendido para: ${artist} - ${track}`,
+      );
+      const response = await axios.get(
+        `${this.HYBRID_SERVICE_URL}/related?artist=${encodeURIComponent(artist)}&track=${encodeURIComponent(track)}`,
+      );
+
+      const relatedSongs = response.data;
+      if (!Array.isArray(relatedSongs)) return [];
+
+      return relatedSongs;
+    } catch (error) {
+      console.error(
+        `[🚨 Error Pasarela Recomendaciones Extendidas]:`,
+        error.message,
+      );
+      throw new InternalServerErrorException(
+        'Error en el servicio extendido de Inteligencia Musical.',
+      );
+    }
+  }
+
+  async resolveAndRegisterSongId(
+    artist: string,
+    track: string,
+  ): Promise<{ youtube_id: string; thumbnail: string }> {
+    try {
+      // 🛡️ VERIFICACIÓN EN CALIENTE: ¿Ya la tenemos indexada en PostgreSQL?
+      const localSong = await this.songRepository.findOne({
+        where: { artist, title: track },
+      });
+
+      if (localSong && localSong.youtube_id) {
+        console.log(
+          `[💾 PostgreSQL HIT] ID recuperado localmente para: ${artist} - ${track}`,
+        );
+        return {
+          youtube_id: localSong.youtube_id,
+          thumbnail: localSong.thumbnail || '',
+        };
+      }
+
+      console.log(
+        `[📡 Pasarela I2V] Solicitando resolución externa de ID para: ${artist} - ${track}`,
+      );
+      const response = await axios.get(
+        `${this.HYBRID_SERVICE_URL}/resolve-id?artist=${encodeURIComponent(artist)}&track=${encodeURIComponent(track)}`,
+      );
+
+      const { youtube_id, thumbnail } = response.data;
+
+      if (youtube_id) {
+        // Guardamos y registramos inmediatamente en el catálogo para futuras consultas globales
+        await this.saveToCatalog({
+          youtube_id,
+          title: track,
+          artist,
+          duration_seconds: 180,
+          thumbnail,
+        }).catch((err) =>
+          console.warn(
+            `[💾 Catálogo Silencioso] No se pudo persistir el id resuelto:`,
+            err.message,
+          ),
+        );
+      }
+
+      return { youtube_id: youtube_id || '', thumbnail: thumbnail || '' };
+    } catch (error) {
+      console.error('[🚨 Error en Resolver de IDs Backend]:', error.message);
+      return { youtube_id: '', thumbnail: '' };
     }
   }
 
@@ -152,8 +192,6 @@ export class SongsService {
       console.log(
         `[🌐 Kamux Red] Solicitando URL de streaming directo al Microservicio Multimedia (Puerto 5000)...`,
       );
-
-      // 🛡️ INTACTO: Sigue apuntando al puerto 5000 para que yt-dlp procese el audio pesado
       const response = await axios.get(
         `${this.MEDIA_SERVICE_URL}/stream-url/${youtubeId}`,
       );
@@ -214,7 +252,6 @@ export class SongsService {
         song_id: youtubeId,
         played_at: new Date(),
       });
-
       return await this.historyRepository.save(historyEntry);
     } catch (error) {
       console.error('Error al insertar registro en historial:', error);
