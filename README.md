@@ -1,31 +1,63 @@
-# Kamux Backend - Sistema Core 🚀
+# Kamux Backend - Núcleo Core de Datos y Negocio 🧠⚙️
 
-Núcleo central de la plataforma Kamux, desarrollado sobre **NestJS** con arquitectura orientada a servicios. Se encarga de la gestión empresarial del sistema: control de acceso (JWT), persistencia en base de datos relacional (PostgreSQL via TypeORM), sincronización automática de letras y proxy de transmisión multimedia con soporte de rango parcial.
+Servidor backend robusto desarrollado sobre NestJS, encargado de orquestar la lógica de negocio central de la plataforma Kamux, la persistencia de datos relacionales, el control de acceso, y la comunicación con el microservicio híbrido de procesamiento multimedia.
 
-## 📊 Arquitectura de Microservicios
-El sistema implementa un desacoplamiento de responsabilidades para optimizar recursos en infraestructura cloud:
+---
 
-1. **NestJS (Puerto 4000):** Gestiona la lógica de negocio, usuarios, playlists, caché en RAM e historial.
-2. **Media Service (Puerto 5000):** Consume de forma local la pasarela de extracción multimedia tunelizada.
+## 🚀 Arquitectura del Core
 
-## 🎤 Funcionalidades Core
-- **Módulo de Canciones e Historial:** Registro inteligente de reproducciones recientes en base de datos.
-- **Caché en RAM y PostgreSQL:** Persistencia de metadatos y almacenamiento de URLs directas por un máximo de 5 horas para mitigar la tasa de peticiones a la red externa.
-- **Pipeline de Letras Integrado:** Sincronización en tiempo real consumiendo la API de LRCLIB con normalización de metadata a dos niveles.
-- **Transmisión de Rango Dinámico (HTTP 206):** Controlador optimizado para despachar bytes multimedia bajo demanda (Range: bytes=0-), permitiendo rebobinar pistas en el cliente de Angular de manera fluida.
+El backend opera como la pasarela central de una arquitectura distribuida basada en microservicios, interactuando con las capas del cliente y de infraestructura multimedia de la siguiente manera:
 
-## 🔐 Configuración de Seguridad en Red
-Para evitar colisiones de firmas y bloqueos 403 Forbidden por parte de Google al leer los flujos binarios, el controlador de streaming inyecta de manera quirúrgica un agente de red compatible con el túnel SOCKS5 local para que Axios use la misma IP residencial de Cloudflare WARP.
+**Flujo:** Angular App (Cliente) ➔ Kamux Backend (NestJS / Puerto 4000) ➔ Motor Híbrido Multiproyecto (Express / Puerto 5001) ➔ PostgreSQL (Base de datos)
 
-## 🛠️ Comandos de Mantenimiento (Producción)
+### 📊 Gestión de Datos Limpios e Integridad
+Tras la reestructuración del flujo inverso de catálogo, el backend procesa exclusivamente metadatos comerciales de estudio pre-validados. Esto blinda las transacciones de las tablas en PostgreSQL, impidiendo que títulos sucios de canales externos (sufijos corporativos, menciones de calidad o nombres de usuarios) corrompan el historial de reproducción o dupliquen entidades musicales de forma descontrolada.
 
-### Actualizar y Recompilar el Sistema
-* git pull origin main
-* npm install
-* npm run build
+---
 
-### Reinicio Limpio del Proceso en PM2
-Para purgar variables de entorno residuales en la memoria del gestor de procesos:
-* pm2 delete kamux-backend
-* pm2 start dist/main.js --name kamux-backend
-* pm2 save
+## 🏗️ Características Principales
+
+- **Orquestación de Entidades:** Control y modelado relacional de usuarios, canciones, listas de reproducción, historial y sincronización de metadatos de letras.
+- **Persistencia de Alta Integridad:** Conexión y mapeo de datos mediante ORM directo a PostgreSQL, optimizado con operaciones en cascada para limpiezas y purgas completas de entorno.
+- **Seguridad y Control:** Implementación de pipelines de validación de datos para solicitudes entrantes y despacho controlado de endpoints hacia el cliente Angular.
+- **Canalización Híbrida de Medios:** Gateway de enlace que recibe las consultas de reproducción del cliente y las deriva de forma ágil hacia el pool dinámico del microservicio Express.
+
+---
+
+## ⚙️ Configuración del Entorno (Variables de Entorno)
+
+Para inicializar el core en producción o desarrollo local, asegúrate de configurar tu archivo `.env` en la raíz del proyecto con las credenciales de tu base de datos y puertos de enlace:
+
+- `PORT=4000`
+- `DB_HOST=localhost`
+- `DB_PORT=5432`
+- `DB_USERNAME=postgres`
+- `DB_PASSWORD=tu_contraseña_segura`
+- `DB_DATABASE=kamux` *(Nombre de tu base de datos relacional)*
+- `MEDIA_SERVICE_URL=http://localhost:5001` *(Dirección del Motor Híbrido Multiproyecto)*
+
+---
+
+## 🛠️ Comandos de Desarrollo y Mantenimiento
+
+### Instalar Dependencias Locales
+
+Descarga e instala todos los módulos y paquetes estructurales necesarios para el framework NestJS ejecutando:
+
+- `npm install`
+
+### Levantar Servidor en Desarrollo
+
+Para compilar e inicializar el servidor localmente con escucha activa de cambios en caliente (Hot Reload) ejecuta:
+
+- `npm run start:dev`
+
+### Compilar y Desplegar en Producción
+
+Genera la compilación de producción optimizada en JavaScript nativo dentro de la carpeta `dist/` para su ejecución permanente en el VPS mediante administradores de procesos (como PM2):
+
+- `npm run build`
+- `pm2 start dist/main.js --name kamux-backend`
+
+---
+*Desarrollado como parte del proyecto de arquitectura de sistemas para Kamux Music Platform.*
