@@ -14,7 +14,10 @@ import axios from 'axios';
 export class SongsService {
   private searchCache = new Map<string, { songs: any[]; expiresAt: number }>();
   private readonly CACHE_TTL = 2 * 60 * 60 * 1000;
-  private readonly MEDIA_SERVICE_URL = 'http://127.0.0.1:5000';
+
+  // 🧭 SEPARACIÓN DE RESPONSABILIDADES
+  private readonly MEDIA_SERVICE_URL = 'http://127.0.0.1:5000'; // Solo para Streaming de Audio
+  private readonly HYBRID_SERVICE_URL = 'http://127.0.0.1:5001'; // Para Búsquedas y Radio Inteligente
 
   constructor(
     @InjectRepository(Song)
@@ -39,19 +42,19 @@ export class SongsService {
 
     const startTime = performance.now();
     console.log(
-      `[⏱️ Telemetría Kamux] Solicitando búsqueda al Microservicio Multimedia para: "${query}"`,
+      `[⏱️ Telemetría Kamux] Solicitando búsqueda al Microservicio Híbrido para: "${query}"`,
     );
 
     try {
-      // 🚀 Modificado: Pasamos la query limpia directamente a YouTube Music sin concatenar "- Topic"
+      // 🎯 MODIFICADO: Apunta al puerto 5001 y usa el parámetro "?q=" oficial de Google
       const response = await axios.get(
-        `${this.MEDIA_SERVICE_URL}/search?query=${encodeURIComponent(query.trim())}`,
+        `${this.HYBRID_SERVICE_URL}/search?q=${encodeURIComponent(query.trim())}`,
       );
       const finalSongs = response.data;
 
       const endTime = performance.now();
       console.log(
-        `[⏱️ Telemetría Kamux] Catálogo devuelto por el Microservicio en ${((endTime - startTime) / 1000).toFixed(2)}s`,
+        `[⏱️ Telemetría Kamux] Catálogo devuelto por el Pool Oficial en ${((endTime - startTime) / 1000).toFixed(2)}s`,
       );
 
       this.searchCache.set(lowerQuery, {
@@ -62,19 +65,37 @@ export class SongsService {
       return finalSongs;
     } catch (error) {
       console.error(
-        '[🚨 Error en Pasarela Compartida de Búsqueda]:',
+        '[🚨 Error en Pasarela Compartida de Búsqueda Híbrida]:',
         error.message,
       );
       throw new InternalServerErrorException(
-        'Error al buscar en el servicio binario de música.',
+        'Error al buscar en el servicio oficial de música.',
       );
     }
   }
 
   async getRelatedSongs(youtubeId: string): Promise<any[]> {
     try {
+      console.log(
+        `[🧠 Kamux Radio] Buscando metadatos locales para el ID: ${youtubeId}`,
+      );
+
+      // 🎯 CRÍTICO: Buscamos la canción actual en la base de datos para darle a Last.fm lo que necesita
+      const currentSong = await this.songRepository.findOne({
+        where: { youtube_id: youtubeId },
+      });
+
+      // Si no tenemos la canción registrada, usamos valores por defecto seguros para no romper la app
+      const artist = currentSong?.artist || 'Motley Crue';
+      const track = currentSong?.title || 'Kickstart My Heart';
+
+      console.log(
+        `[📻 Kamux Radio] Solicitando Mix Híbrido para: ${artist} - ${track}`,
+      );
+
+      // 🎯 MODIFICADO: Llama al puerto 5001 enviando los metadatos limpios en formato "?artist=&track="
       const response = await axios.get(
-        `${this.MEDIA_SERVICE_URL}/related/${youtubeId}`,
+        `${this.HYBRID_SERVICE_URL}/related?artist=${encodeURIComponent(artist)}&track=${encodeURIComponent(track)}`,
       );
 
       const relatedSongs = response.data;
@@ -82,6 +103,7 @@ export class SongsService {
         return [];
       }
 
+      // Pre-guardado silencioso en el catálogo para optimizar futuras reproducciones
       for (const song of relatedSongs) {
         this.saveToCatalog({
           youtube_id: song.youtube_id,
@@ -100,11 +122,11 @@ export class SongsService {
       return relatedSongs;
     } catch (error) {
       console.error(
-        `[🚨 Error Pasarela Recomendaciones] Error al conectar con el puerto 5000:`,
+        `[🚨 Error Pasarela Recomendaciones Híbridas]:`,
         error.message,
       );
       throw new InternalServerErrorException(
-        'Error en el servicio de recomendaciones multimedia.',
+        'Error en el servicio de recomendaciones de Inteligencia Musical.',
       );
     }
   }
@@ -128,9 +150,10 @@ export class SongsService {
       }
 
       console.log(
-        `[🌐 Kamux Red] Solicitando URL de streaming directo al Microservicio Multimedia...`,
+        `[🌐 Kamux Red] Solicitando URL de streaming directo al Microservicio Multimedia (Puerto 5000)...`,
       );
 
+      // 🛡️ INTACTO: Sigue apuntando al puerto 5000 para que yt-dlp procese el audio pesado
       const response = await axios.get(
         `${this.MEDIA_SERVICE_URL}/stream-url/${youtubeId}`,
       );
