@@ -80,10 +80,17 @@ export class SongsService {
         where: { youtube_id: youtubeId },
       });
 
-      const artist = currentSong?.artist || 'Motley Crue';
-      const track = currentSong?.title || 'Kickstart My Heart';
+      if (!currentSong || !currentSong.artist || !currentSong.title) {
+        console.log(
+          `[🚫 Catálogo Vacío] ID no registrado en historial. Cancelando mix híbrido por defecto.`,
+        );
+        return [];
+      }
 
-      return this.getRelatedSongsExtended(artist, track);
+      return this.getRelatedSongsExtended(
+        currentSong.artist,
+        currentSong.title,
+      );
     } catch (error) {
       console.error(
         `[🚨 Error Pasarela Recomendaciones Híbridas]:`,
@@ -96,6 +103,7 @@ export class SongsService {
   }
 
   async getRelatedSongsExtended(artist: string, track: string): Promise<any[]> {
+    if (!artist || !track) return [];
     try {
       console.log(
         `[📻 Kamux Radio] Solicitando Mix Híbrido Extendido para: ${artist} - ${track}`,
@@ -110,7 +118,7 @@ export class SongsService {
       return relatedSongs;
     } catch (error) {
       console.error(
-        `[🚨 Error Pasarela Recomendaciones Extendidas]:`,
+        `[🚨 Error Pasarela Recomendaciones Extendas]:`,
         error.message,
       );
       throw new InternalServerErrorException(
@@ -124,7 +132,6 @@ export class SongsService {
     track: string,
   ): Promise<{ youtube_id: string; thumbnail: string }> {
     try {
-      // 🛡️ VERIFICACIÓN EN CALIENTE: ¿Ya la tenemos indexada en PostgreSQL?
       const localSong = await this.songRepository.findOne({
         where: { artist, title: track },
       });
@@ -149,7 +156,6 @@ export class SongsService {
       const { youtube_id, thumbnail } = response.data;
 
       if (youtube_id) {
-        // Guardamos y registramos inmediatamente en el catálogo para futuras consultas globales
         await this.saveToCatalog({
           youtube_id,
           title: track,
